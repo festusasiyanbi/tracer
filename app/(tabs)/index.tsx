@@ -1,98 +1,472 @@
-import { Image } from 'expo-image';
-import { Platform, StyleSheet } from 'react-native';
+import {
+  getCurrentZone,
+  getEffectiveCoords,
+  useStore,
+} from "@/src/state/store";
+import {
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from "react-native";
 
-import { HelloWave } from '@/components/hello-wave';
-import ParallaxScrollView from '@/components/parallax-scroll-view';
-import { ThemedText } from '@/components/themed-text';
-import { ThemedView } from '@/components/themed-view';
-import { Link } from 'expo-router';
+function formatTime(iso: string | null) {
+  if (!iso) return "—";
+  return new Date(iso).toTimeString().slice(0, 8);
+}
 
-export default function HomeScreen() {
+function formatDuration(start: string | null, end: string | null) {
+  if (!start) return "—";
+  const s = new Date(start).getTime();
+  const e = end ? new Date(end).getTime() : Date.now();
+  const mins = Math.floor((e - s) / 60000);
+  const secs = Math.floor(((e - s) % 60000) / 1000);
+  return `${mins}m ${secs}s`;
+}
+
+const MODES = [
+  {
+    id: "stationary",
+    label: "Stationary",
+    icon: "●",
+    color: "#94A3B8",
+    dim: "#94A3B811",
+    dimBorder: "#94A3B822",
+  },
+  {
+    id: "walking",
+    label: "Walking",
+    icon: "▲",
+    color: "#4ECDC4",
+    dim: "#4ECDC411",
+    dimBorder: "#4ECDC422",
+  },
+  {
+    id: "driving",
+    label: "Driving",
+    icon: "◆",
+    color: "#FFB347",
+    dim: "#FFB34711",
+    dimBorder: "#FFB34722",
+  },
+] as const;
+
+export default function ObserverScreen() {
+  const store = useStore();
+  const coords = getEffectiveCoords(store);
+  const zone = coords ? getCurrentZone(coords.lat, coords.lng) : null;
+  const effectiveActivity = store.mockActivity ?? store.activity;
+  const { trip } = store;
+
   return (
-    <ParallaxScrollView
-      headerBackgroundColor={{ light: '#A1CEDC', dark: '#1D3D47' }}
-      headerImage={
-        <Image
-          source={require('@/assets/images/partial-react-logo.png')}
-          style={styles.reactLogo}
-        />
-      }>
-      <ThemedView style={styles.titleContainer}>
-        <ThemedText type="title">Welcome!</ThemedText>
-        <HelloWave />
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <ThemedText type="subtitle">Step 1: Try it</ThemedText>
-        <ThemedText>
-          Edit <ThemedText type="defaultSemiBold">app/(tabs)/index.tsx</ThemedText> to see changes.
-          Press{' '}
-          <ThemedText type="defaultSemiBold">
-            {Platform.select({
-              ios: 'cmd + d',
-              android: 'cmd + m',
-              web: 'F12',
-            })}
-          </ThemedText>{' '}
-          to open developer tools.
-        </ThemedText>
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <Link href="/modal">
-          <Link.Trigger>
-            <ThemedText type="subtitle">Step 2: Explore</ThemedText>
-          </Link.Trigger>
-          <Link.Preview />
-          <Link.Menu>
-            <Link.MenuAction title="Action" icon="cube" onPress={() => alert('Action pressed')} />
-            <Link.MenuAction
-              title="Share"
-              icon="square.and.arrow.up"
-              onPress={() => alert('Share pressed')}
-            />
-            <Link.Menu title="More" icon="ellipsis">
-              <Link.MenuAction
-                title="Delete"
-                icon="trash"
-                destructive
-                onPress={() => alert('Delete pressed')}
-              />
-            </Link.Menu>
-          </Link.Menu>
-        </Link>
+    <View style={s.container}>
+      <Text style={s.header}>
+        bondtrail <Text style={s.sub}>observer</Text>
+      </Text>
 
-        <ThemedText>
-          {`Tap the Explore tab to learn more about what's included in this starter app.`}
-        </ThemedText>
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <ThemedText type="subtitle">Step 3: Get a fresh start</ThemedText>
-        <ThemedText>
-          {`When you're ready, run `}
-          <ThemedText type="defaultSemiBold">npm run reset-project</ThemedText> to get a fresh{' '}
-          <ThemedText type="defaultSemiBold">app</ThemedText> directory. This will move the current{' '}
-          <ThemedText type="defaultSemiBold">app</ThemedText> to{' '}
-          <ThemedText type="defaultSemiBold">app-example</ThemedText>.
-        </ThemedText>
-      </ThemedView>
-    </ParallaxScrollView>
+      {/* Status Card */}
+      <View style={s.card}>
+        <View style={s.row}>
+          <Text style={s.label}>STATUS</Text>
+          <View
+            style={[
+              s.tag,
+              { borderColor: store.paused ? "#FF6B6B44" : "#4ECDC444" },
+            ]}
+          >
+            <Text
+              style={{
+                color: store.paused ? "#FF6B6B" : "#4ECDC4",
+                fontSize: 11,
+                fontFamily: "monospace",
+              }}
+            >
+              {store.paused ? "PAUSED" : "VISIBLE"}
+            </Text>
+          </View>
+        </View>
+
+        <View style={s.row}>
+          <Text style={s.label}>LOCATION</Text>
+          <Text style={s.value}>
+            {store.paused
+              ? "⊘ Hidden"
+              : coords
+                ? zone
+                  ? `✓ ${zone.label}`
+                  : "⚠ Unknown zone"
+                : "Acquiring…"}
+          </Text>
+        </View>
+
+        {coords && !store.paused && (
+          <Text style={s.coords}>
+            {coords.lat.toFixed(5)}, {coords.lng.toFixed(5)}
+          </Text>
+        )}
+      </View>
+
+      {/* Activity Mode Indicators */}
+      <View style={s.modeRow}>
+        {MODES.map((mode) => {
+          const active = effectiveActivity === mode.id;
+          return (
+            <View
+              key={mode.id}
+              style={[
+                s.modeCard,
+                {
+                  backgroundColor: active ? mode.dim : "transparent",
+                  borderColor: active ? mode.color + "55" : "#1a1a1a",
+                  opacity: active ? 1 : 0.35,
+                },
+              ]}
+            >
+              <Text
+                style={{
+                  color: active ? mode.color : "#555",
+                  fontSize: 18,
+                  marginBottom: 6,
+                }}
+              >
+                {mode.icon}
+              </Text>
+              <Text
+                style={{
+                  color: active ? mode.color : "#444",
+                  fontFamily: "monospace",
+                  fontSize: 10,
+                  letterSpacing: 0.5,
+                }}
+              >
+                {mode.label.toUpperCase()}
+              </Text>
+
+              {/* Sub-info only on active mode */}
+              {active && mode.id === "driving" && (
+                <Text
+                  style={{
+                    color: mode.color,
+                    fontFamily: "monospace",
+                    fontSize: 11,
+                    marginTop: 4,
+                  }}
+                >
+                  {store.speedKph.toFixed(1)} km/h
+                </Text>
+              )}
+              {active && mode.id === "walking" && (
+                <Text
+                  style={{
+                    color: mode.color,
+                    fontFamily: "monospace",
+                    fontSize: 11,
+                    marginTop: 4,
+                  }}
+                >
+                  on foot
+                </Text>
+              )}
+              {active && mode.id === "stationary" && (
+                <Text
+                  style={{
+                    color: mode.color,
+                    fontFamily: "monospace",
+                    fontSize: 11,
+                    marginTop: 4,
+                  }}
+                >
+                  still
+                </Text>
+              )}
+
+              {/* Active dot */}
+              {active && (
+                <View
+                  style={{
+                    position: "absolute",
+                    top: 8,
+                    right: 8,
+                    width: 6,
+                    height: 6,
+                    borderRadius: 3,
+                    backgroundColor: mode.color,
+                  }}
+                />
+              )}
+            </View>
+          );
+        })}
+      </View>
+
+      {/* Active Trip Card */}
+      {(trip.active || trip.endTime) && (
+        <View
+          style={[
+            s.card,
+            { borderColor: trip.active ? "#FFB34733" : "#33333355" },
+          ]}
+        >
+          <View style={s.row}>
+            <Text style={s.label}>
+              {trip.active ? "TRIP IN PROGRESS" : "LAST TRIP"}
+            </Text>
+            {trip.active && (
+              <View style={[s.tag, { borderColor: "#FFB34744" }]}>
+                <Text
+                  style={{
+                    color: "#FFB347",
+                    fontFamily: "monospace",
+                    fontSize: 10,
+                  }}
+                >
+                  LIVE
+                </Text>
+              </View>
+            )}
+          </View>
+
+          <View style={s.tripRow}>
+            <Text style={s.tripKey}>Started at</Text>
+            <Text style={s.tripVal}>
+              {trip.startLat?.toFixed(5)}, {trip.startLng?.toFixed(5)}
+            </Text>
+          </View>
+
+          <View style={s.tripRow}>
+            <Text style={s.tripKey}>Start time</Text>
+            <Text style={s.tripVal}>{formatTime(trip.startTime)}</Text>
+          </View>
+
+          {!trip.active && trip.endTime && (
+            <View style={s.tripRow}>
+              <Text style={s.tripKey}>End time</Text>
+              <Text style={s.tripVal}>{formatTime(trip.endTime)}</Text>
+            </View>
+          )}
+
+          <View style={s.tripRow}>
+            <Text style={s.tripKey}>Duration</Text>
+            <Text style={s.tripVal}>
+              {formatDuration(trip.startTime, trip.endTime)}
+            </Text>
+          </View>
+
+          {trip.active && (
+            <View style={s.tripRow}>
+              <Text style={s.tripKey}>Current speed</Text>
+              <Text style={[s.tripVal, { color: "#FFB347" }]}>
+                {trip.currentSpeedKph.toFixed(1)} km/h
+              </Text>
+            </View>
+          )}
+
+          <View style={s.tripRow}>
+            <Text style={s.tripKey}>Top speed</Text>
+            <Text style={[s.tripVal, { color: "#FFB347" }]}>
+              {trip.topSpeedKph.toFixed(1)} km/h
+            </Text>
+          </View>
+
+          <View style={s.tripRow}>
+            <Text style={s.tripKey}>Hard brakes</Text>
+            <Text
+              style={[
+                s.tripVal,
+                { color: trip.hardBrakeCount > 0 ? "#FF6B6B" : "#eee" },
+              ]}
+            >
+              {trip.hardBrakeCount}
+            </Text>
+          </View>
+
+          {trip.hardBrakeEvents.length > 0 && (
+            <View style={{ marginTop: 6 }}>
+              {trip.hardBrakeEvents.map((b, i) => (
+                <Text
+                  key={i}
+                  style={{
+                    color: "#FF6B6B88",
+                    fontFamily: "monospace",
+                    fontSize: 10,
+                  }}
+                >
+                  {b.time} — braked at {b.speedKph.toFixed(1)} km/h
+                </Text>
+              ))}
+            </View>
+          )}
+        </View>
+      )}
+
+      {/* Check-in banners */}
+      {store.checkinActive && (
+        <View style={s.banner}>
+          <Text style={s.bannerText}>
+            Check-in nudge sent — awaiting response
+          </Text>
+        </View>
+      )}
+      {store.overrideActive && (
+        <View
+          style={[
+            s.banner,
+            { borderColor: "#FF6B6B44", backgroundColor: "#FF6B6B11" },
+          ]}
+        >
+          <Text style={[s.bannerText, { color: "#FF6B6B" }]}>
+            Override active — location forced visible
+          </Text>
+        </View>
+      )}
+
+      {/* Event Log */}
+      <Text style={[s.label, { marginTop: 16, marginBottom: 8 }]}>
+        EVENT LOG
+      </Text>
+      <ScrollView style={s.log}>
+        {store.events.length === 0 && (
+          <Text
+            style={{
+              color: "#333",
+              fontFamily: "monospace",
+              fontSize: 11,
+              textAlign: "center",
+              marginTop: 20,
+            }}
+          >
+            — no events yet —
+          </Text>
+        )}
+        {[...store.events].reverse().map((e, i) => {
+          const typeColor: Record<string, string> = {
+            ZONE: "#4ECDC4",
+            CHECKIN: "#FFB347",
+            OVERRIDE: "#FF6B6B",
+            ACTIVITY: "#A78BFA",
+            PAUSE: "#94A3B8",
+            VISIBILITY: "#60A5FA",
+            TRIP: "#FFB347",
+            SAFETY: "#FF6B6B",
+            GPS: "#2a2a2a",
+            SYSTEM: "#333",
+          };
+          return (
+            <View key={i} style={s.logRow}>
+              <Text style={s.logTime}>{e.time}</Text>
+              <Text style={[s.logType, { color: typeColor[e.type] || "#555" }]}>
+                [{e.type}]
+              </Text>
+              <Text style={s.logMsg}>{e.msg}</Text>
+            </View>
+          );
+        })}
+      </ScrollView>
+
+      <TouchableOpacity onPress={store.clearLog} style={s.clearBtn}>
+        <Text style={{ color: "#333", fontFamily: "monospace", fontSize: 11 }}>
+          Clear Log
+        </Text>
+      </TouchableOpacity>
+    </View>
   );
 }
 
-const styles = StyleSheet.create({
-  titleContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
+const s = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: "#080808",
+    padding: 20,
+    paddingTop: 60,
   },
-  stepContainer: {
-    gap: 8,
-    marginBottom: 8,
+  header: {
+    color: "#eee",
+    fontSize: 20,
+    fontFamily: "monospace",
+    marginBottom: 20,
+    fontWeight: "700",
   },
-  reactLogo: {
-    height: 178,
-    width: 290,
-    bottom: 0,
-    left: 0,
-    position: 'absolute',
+  sub: { color: "#333", fontWeight: "400" },
+  card: {
+    backgroundColor: "#0f0f0f",
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: "#1a1a1a",
+    padding: 16,
+    marginBottom: 12,
   },
+  row: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 10,
+  },
+  label: {
+    color: "#444",
+    fontSize: 10,
+    fontFamily: "monospace",
+    letterSpacing: 1,
+  },
+  value: { color: "#eee", fontSize: 13, fontFamily: "monospace" },
+  coords: {
+    color: "#333",
+    fontSize: 10,
+    fontFamily: "monospace",
+    marginBottom: 4,
+  },
+  tag: {
+    borderWidth: 1,
+    borderRadius: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+  },
+
+  modeRow: { flexDirection: "row", gap: 10, marginBottom: 12 },
+  modeCard: {
+    flex: 1,
+    borderWidth: 1,
+    borderRadius: 10,
+    padding: 14,
+    alignItems: "center",
+    position: "relative",
+  },
+
+  tripRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginBottom: 6,
+  },
+  tripKey: { color: "#444", fontFamily: "monospace", fontSize: 11 },
+  tripVal: {
+    color: "#eee",
+    fontFamily: "monospace",
+    fontSize: 11,
+    flex: 1,
+    textAlign: "right",
+  },
+
+  banner: {
+    borderWidth: 1,
+    borderColor: "#FFB34744",
+    backgroundColor: "#FFB34711",
+    borderRadius: 8,
+    padding: 12,
+    marginBottom: 12,
+  },
+  bannerText: { color: "#FFB347", fontFamily: "monospace", fontSize: 12 },
+
+  log: {
+    flex: 1,
+    backgroundColor: "#0a0a0a",
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: "#1a1a1a",
+    padding: 10,
+  },
+  logRow: { flexDirection: "row", gap: 6, marginBottom: 5 },
+  logTime: { color: "#333", fontFamily: "monospace", fontSize: 10, width: 65 },
+  logType: { fontFamily: "monospace", fontSize: 10, width: 82 },
+  logMsg: { color: "#888", fontFamily: "monospace", fontSize: 10, flex: 1 },
+  clearBtn: { marginTop: 8, alignItems: "center", padding: 8 },
 });

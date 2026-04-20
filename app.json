@@ -7,9 +7,15 @@
     "icon": "./assets/images/icon.png",
     "scheme": "tracer",
     "userInterfaceStyle": "automatic",
-    "newArchEnabled": true,
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.yourname.tracer",
+      "infoPlist": {
+        "NSLocationWhenInUseUsageDescription": "Tracer needs your location to show it on the observer screen.",
+        "NSLocationAlwaysUsageDescription": "Tracer needs background location for zone detection.",
+        "NSMotionUsageDescription": "Tracer uses motion to detect walking and driving.",
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "Tracer needs background location for zone detection."
+      }
     },
     "android": {
       "adaptiveIcon": {
@@ -18,8 +24,14 @@
         "backgroundImage": "./assets/images/android-icon-background.png",
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
-      "edgeToEdgeEnabled": true,
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "package": "com.yourname.tracer",
+      "permissions": [
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_COARSE_LOCATION",
+        "ACTIVITY_RECOGNITION",
+        "ACCESS_BACKGROUND_LOCATION"
+      ]
     },
     "web": {
       "output": "static",
@@ -27,6 +39,12 @@
     },
     "plugins": [
       "expo-router",
+      [
+        "expo-sensors",
+        {
+          "motionPermission": "Allow $(PRODUCT_NAME) to access your device motion"
+        }
+      ],
       [
         "expo-splash-screen",
         {
