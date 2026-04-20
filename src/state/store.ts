@@ -4,6 +4,7 @@ type Activity = "stationary" | "walking" | "driving";
 type MockLocation = "real" | "home" | "school" | "work" | "unknown";
 
 export interface Trip {
+  id: string;
   active: boolean;
   startLat: number | null;
   startLng: number | null;
@@ -18,43 +19,39 @@ export interface Trip {
 }
 
 interface TracerState {
-  // Real location
   lat: number | null;
   lng: number | null;
   setLocation: (lat: number, lng: number) => void;
 
-  // Speed (from GPS)
   speedKph: number;
   setSpeed: (kph: number) => void;
 
-  // Activity
+  gpsAccuracy: number | null;
+  setGpsAccuracy: (a: number | null) => void;
+
   activity: Activity;
   setActivity: (a: Activity) => void;
 
-  // Mock controls
   mockLocation: MockLocation;
   setMockLocation: (m: MockLocation) => void;
   mockActivity: Activity | null;
   setMockActivity: (a: Activity | null) => void;
 
-  // Pause
   paused: boolean;
   setPaused: (p: boolean) => void;
 
-  // Check-in
   checkinActive: boolean;
   setCheckinActive: (c: boolean) => void;
   overrideActive: boolean;
   setOverrideActive: (o: boolean) => void;
 
-  // Trip
   trip: Trip;
+  tripHistory: Trip[];
   startTrip: (lat: number, lng: number) => void;
   endTrip: (lat: number, lng: number) => void;
   updateTripSpeed: (kph: number) => void;
   recordHardBrake: (speedKph: number) => void;
 
-  // Event log
   events: { time: string; type: string; msg: string }[];
   log: (type: string, msg: string) => void;
   clearLog: () => void;
@@ -75,6 +72,7 @@ export const ZONES = [
 ];
 
 const defaultTrip: Trip = {
+  id: "",
   active: false,
   startLat: null,
   startLng: null,
@@ -126,6 +124,9 @@ export const useStore = create<TracerState>((set, get) => ({
   speedKph: 0,
   setSpeed: (kph) => set({ speedKph: kph }),
 
+  gpsAccuracy: null,
+  setGpsAccuracy: (gpsAccuracy) => set({ gpsAccuracy }),
+
   activity: "stationary",
   setActivity: (activity) => set({ activity }),
 
@@ -143,37 +144,48 @@ export const useStore = create<TracerState>((set, get) => ({
   setOverrideActive: (overrideActive) => set({ overrideActive }),
 
   trip: { ...defaultTrip },
+  tripHistory: [],
 
   startTrip: (lat, lng) => {
-    const time = new Date().toTimeString().slice(0, 8);
+    const id = Date.now().toString();
     set({
       trip: {
         ...defaultTrip,
+        id,
         active: true,
         startLat: lat,
         startLng: lng,
         startTime: new Date().toISOString(),
       },
     });
-    get().log("TRIP", `Trip started at ${lat.toFixed(5)}, ${lng.toFixed(5)}`);
+    get().log("TRIP", `Trip started — ${lat.toFixed(5)}, ${lng.toFixed(5)}`);
   },
 
-  endTrip: (lat?: number, lng?: number) => {
+  endTrip: (lat, lng) => {
     const { trip, log } = get();
-
+    if (!trip.active) return;
     const endTime = new Date().toISOString();
-
-    set({
-      trip: {
-        ...trip,
-        active: false,
-        endTime,
-        endLat: lat ?? trip.endLat,
-        endLng: lng ?? trip.endLng,
-      },
-    });
-
-    log("TRIP", `Trip ended at ${lat?.toFixed(5)}, ${lng?.toFixed(5)}`);
+    const durationMin = trip.startTime
+      ? Math.round(
+          (new Date(endTime).getTime() - new Date(trip.startTime).getTime()) /
+            60000,
+        )
+      : 0;
+    const completed: Trip = {
+      ...trip,
+      active: false,
+      endTime,
+      endLat: lat,
+      endLng: lng,
+    };
+    set((s) => ({
+      trip: completed,
+      tripHistory: [completed, ...s.tripHistory],
+    }));
+    log(
+      "TRIP",
+      `Trip ended — ${durationMin} min · top ${trip.topSpeedKph.toFixed(1)} km/h · ${trip.hardBrakeCount} hard brake(s)`,
+    );
   },
 
   updateTripSpeed: (kph) => {
@@ -195,7 +207,7 @@ export const useStore = create<TracerState>((set, get) => ({
         hardBrakeEvents: [...s.trip.hardBrakeEvents, { time, speedKph }],
       },
     }));
-    get().log("SAFETY", `Hard brake detected at ${speedKph.toFixed(1)} km/h`);
+    get().log("SAFETY", `Hard brake at ${speedKph.toFixed(1)} km/h`);
   },
 
   events: [],

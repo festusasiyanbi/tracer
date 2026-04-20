@@ -32,7 +32,6 @@ const MODES = [
     icon: "●",
     color: "#94A3B8",
     dim: "#94A3B811",
-    dimBorder: "#94A3B822",
   },
   {
     id: "walking",
@@ -40,7 +39,6 @@ const MODES = [
     icon: "▲",
     color: "#4ECDC4",
     dim: "#4ECDC411",
-    dimBorder: "#4ECDC422",
   },
   {
     id: "driving",
@@ -48,7 +46,6 @@ const MODES = [
     icon: "◆",
     color: "#FFB347",
     dim: "#FFB34711",
-    dimBorder: "#FFB34722",
   },
 ] as const;
 
@@ -58,6 +55,22 @@ export default function ObserverScreen() {
   const zone = coords ? getCurrentZone(coords.lat, coords.lng) : null;
   const effectiveActivity = store.mockActivity ?? store.activity;
   const { trip } = store;
+
+  const accuracyColor = !store.gpsAccuracy
+    ? "#333"
+    : store.gpsAccuracy <= 15
+      ? "#4ECDC4"
+      : store.gpsAccuracy <= 25
+        ? "#FFB347"
+        : "#FF6B6B";
+
+  const accuracyLabel = !store.gpsAccuracy
+    ? "—"
+    : store.gpsAccuracy <= 15
+      ? "good"
+      : store.gpsAccuracy <= 25
+        ? "fair"
+        : "poor — updates paused";
 
   return (
     <View style={s.container}>
@@ -105,6 +118,21 @@ export default function ObserverScreen() {
             {coords.lat.toFixed(5)}, {coords.lng.toFixed(5)}
           </Text>
         )}
+
+        <View style={s.row}>
+          <Text style={s.label}>GPS ACCURACY</Text>
+          <Text
+            style={{
+              fontFamily: "monospace",
+              fontSize: 11,
+              color: accuracyColor,
+            }}
+          >
+            {store.gpsAccuracy ? `±${store.gpsAccuracy.toFixed(0)}m` : "—"}
+            {"  "}
+            {accuracyLabel}
+          </Text>
+        </View>
       </View>
 
       {/* Activity Mode Indicators */}
@@ -119,10 +147,24 @@ export default function ObserverScreen() {
                 {
                   backgroundColor: active ? mode.dim : "transparent",
                   borderColor: active ? mode.color + "55" : "#1a1a1a",
-                  opacity: active ? 1 : 0.35,
+                  opacity: active ? 1 : 0.3,
                 },
               ]}
             >
+              {active && (
+                <View
+                  style={{
+                    position: "absolute",
+                    top: 8,
+                    right: 8,
+                    width: 6,
+                    height: 6,
+                    borderRadius: 3,
+                    backgroundColor: mode.color,
+                  }}
+                />
+              )}
+
               <Text
                 style={{
                   color: active ? mode.color : "#555",
@@ -142,65 +184,28 @@ export default function ObserverScreen() {
               >
                 {mode.label.toUpperCase()}
               </Text>
-
-              {/* Sub-info only on active mode */}
-              {active && mode.id === "driving" && (
-                <Text
-                  style={{
-                    color: mode.color,
-                    fontFamily: "monospace",
-                    fontSize: 11,
-                    marginTop: 4,
-                  }}
-                >
-                  {store.speedKph.toFixed(1)} km/h
-                </Text>
-              )}
-              {active && mode.id === "walking" && (
-                <Text
-                  style={{
-                    color: mode.color,
-                    fontFamily: "monospace",
-                    fontSize: 11,
-                    marginTop: 4,
-                  }}
-                >
-                  on foot
-                </Text>
-              )}
-              {active && mode.id === "stationary" && (
-                <Text
-                  style={{
-                    color: mode.color,
-                    fontFamily: "monospace",
-                    fontSize: 11,
-                    marginTop: 4,
-                  }}
-                >
-                  still
-                </Text>
-              )}
-
-              {/* Active dot */}
               {active && (
-                <View
+                <Text
                   style={{
-                    position: "absolute",
-                    top: 8,
-                    right: 8,
-                    width: 6,
-                    height: 6,
-                    borderRadius: 3,
-                    backgroundColor: mode.color,
+                    color: mode.color,
+                    fontFamily: "monospace",
+                    fontSize: 11,
+                    marginTop: 4,
                   }}
-                />
+                >
+                  {mode.id === "driving"
+                    ? `${store.speedKph.toFixed(1)} km/h`
+                    : mode.id === "walking"
+                      ? "on foot"
+                      : "still"}
+                </Text>
               )}
             </View>
           );
         })}
       </View>
 
-      {/* Active Trip Card */}
+      {/* Trip Card */}
       {(trip.active || trip.endTime) && (
         <View
           style={[
@@ -238,6 +243,15 @@ export default function ObserverScreen() {
             <Text style={s.tripKey}>Start time</Text>
             <Text style={s.tripVal}>{formatTime(trip.startTime)}</Text>
           </View>
+
+          {!trip.active && trip.endLat && (
+            <View style={s.tripRow}>
+              <Text style={s.tripKey}>Ended at</Text>
+              <Text style={s.tripVal}>
+                {trip.endLat.toFixed(5)}, {trip.endLng?.toFixed(5)}
+              </Text>
+            </View>
+          )}
 
           {!trip.active && trip.endTime && (
             <View style={s.tripRow}>
@@ -282,7 +296,7 @@ export default function ObserverScreen() {
           </View>
 
           {trip.hardBrakeEvents.length > 0 && (
-            <View style={{ marginTop: 6 }}>
+            <View style={{ marginTop: 6, gap: 3 }}>
               {trip.hardBrakeEvents.map((b, i) => (
                 <Text
                   key={i}
@@ -292,7 +306,7 @@ export default function ObserverScreen() {
                     fontSize: 10,
                   }}
                 >
-                  {b.time} — braked at {b.speedKph.toFixed(1)} km/h
+                  {b.time} — {b.speedKph.toFixed(1)} km/h
                 </Text>
               ))}
             </View>
@@ -413,7 +427,7 @@ const s = StyleSheet.create({
     color: "#333",
     fontSize: 10,
     fontFamily: "monospace",
-    marginBottom: 4,
+    marginBottom: 8,
   },
   tag: {
     borderWidth: 1,
@@ -421,7 +435,6 @@ const s = StyleSheet.create({
     paddingHorizontal: 8,
     paddingVertical: 2,
   },
-
   modeRow: { flexDirection: "row", gap: 10, marginBottom: 12 },
   modeCard: {
     flex: 1,
@@ -431,7 +444,6 @@ const s = StyleSheet.create({
     alignItems: "center",
     position: "relative",
   },
-
   tripRow: {
     flexDirection: "row",
     justifyContent: "space-between",
@@ -445,7 +457,6 @@ const s = StyleSheet.create({
     flex: 1,
     textAlign: "right",
   },
-
   banner: {
     borderWidth: 1,
     borderColor: "#FFB34744",
@@ -455,7 +466,6 @@ const s = StyleSheet.create({
     marginBottom: 12,
   },
   bannerText: { color: "#FFB347", fontFamily: "monospace", fontSize: 12 },
-
   log: {
     flex: 1,
     backgroundColor: "#0a0a0a",

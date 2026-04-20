@@ -2,14 +2,17 @@ import * as Location from "expo-location";
 import { useEffect, useRef } from "react";
 import { getCurrentZone, getDistance, useStore } from "../state/store";
 
-const HARD_BRAKE_THRESHOLD = 2.5;
-const DRIVING_SPEED_MS = 5; // ~18 km/h
-const WALKING_SPEED_MS = 1; // ~3.6 km/h
+const HARD_BRAKE_THRESHOLD = 2.5; // m/s² deceleration
+const HARD_BRAKE_DEBOUNCE_MS = 4000; // 4s between recorded brakes
+const DRIVING_SPEED_MS = 5; // ~18 km/h = driving
+const WALKING_SPEED_MS = 1; // ~3.6 km/h = walking
+const TRIP_END_GRACE_MS = 45000; // 45s grace before ending trip
 
 export function useLocation() {
   const {
     setLocation,
     setSpeed,
+    setGpsAccuracy,
     setActivity,
     log,
     startTrip,
@@ -23,6 +26,10 @@ export function useLocation() {
   const prevTime = useRef<number | null>(null);
   const lastCoords = useRef<{ lat: number; lng: number } | null>(null);
   const drivingLockUntil = useRef(0);
+  const tripEndTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastHardBrakeAt = useRef<number>(0);
+  const pendingEndLat = useRef(0);
+  const pendingEndLng = useRef(0);
 
   useEffect(() => {
     let sub: Location.LocationSubscription | null = null;
@@ -34,7 +41,7 @@ export function useLocation() {
         return;
       }
 
-      log("SYSTEM", "Location tracking started");
+      log("SYSTEM", "GPS tracking started");
 
       sub = await Location.watchPositionAsync(
         {
@@ -46,9 +53,13 @@ export function useLocation() {
           const { latitude: lat, longitude: lng, accuracy, speed } = loc.coords;
           const timestamp = loc.timestamp;
 
-          // --- Indoor filtering ---
+          // Always update accuracy for UI display
+          setGpsAccuracy(accuracy);
+
+          // --- Indoor filter: poor accuracy = ignore position updates ---
           if (accuracy && accuracy > 25) return;
 
+          // --- Distance filter: skip jitter under 3m ---
           if (lastCoords.current) {
             const dist = getDistance(
               lastCoords.current.lat,
@@ -58,18 +69,22 @@ export function useLocation() {
             );
             if (dist < 3) return;
           }
-
           lastCoords.current = { lat, lng };
 
           setLocation(lat, lng);
-
           const speedMs = Math.max(speed ?? 0, 0);
           const speedKph = speedMs * 3.6;
           setSpeed(speedKph);
 
-          // --- Activity (GPS FIRST) ---
+          // --- Activity: GPS is primary classifier ---
           if (speedMs > DRIVING_SPEED_MS) {
-            drivingLockUntil.current = Date.now() + 5000;
+            // Driving confirmed — cancel any pending trip end
+            if (tripEndTimer.current !== null) {
+              clearTimeout(tripEndTimer.current);
+              tripEndTimer.current = null;
+              log("TRIP", "Driving resumed — trip end cancelled");
+            }
+            drivingLockUntil.current = Date.now() + 10000;
             setActivity("driving");
           } else if (
             speedMs > WALKING_SPEED_MS &&
@@ -82,27 +97,62 @@ export function useLocation() {
 
           const { activity, trip } = useStore.getState();
 
-          // --- Trip lifecycle ---
+          // --- Trip start ---
           if (activity === "driving" && !trip.active) {
             startTrip(lat, lng);
           }
 
-          if (activity !== "driving" && trip.active) {
-            endTrip(lat, lng);
+          // --- Trip end with grace period ---
+          // Don't end immediately — allow for U-turns, traffic lights, brief stops
+          if (
+            activity !== "driving" &&
+            trip.active &&
+            tripEndTimer.current === null
+          ) {
+            pendingEndLat.current = lat;
+            pendingEndLng.current = lng;
+            log(
+              "TRIP",
+              "Not driving — ending trip in 45s if driving doesn't resume",
+            );
+            tripEndTimer.current = setTimeout(() => {
+              tripEndTimer.current = null;
+              const { trip: currentTrip } = useStore.getState();
+              if (currentTrip.active) {
+                endTrip(pendingEndLat.current, pendingEndLng.current);
+              }
+            }, TRIP_END_GRACE_MS);
           }
 
-          if (trip.active) {
-            updateTripSpeed(speedKph);
+          // Keep updating the pending end coords while in grace period
+          if (
+            trip.active &&
+            activity !== "driving" &&
+            tripEndTimer.current !== null
+          ) {
+            pendingEndLat.current = lat;
+            pendingEndLng.current = lng;
           }
+
+          // --- Trip speed update ---
+          if (trip.active) updateTripSpeed(speedKph);
 
           // --- Hard brake detection ---
-          if (prevTime.current !== null && trip.active) {
+          if (
+            prevTime.current !== null &&
+            trip.active &&
+            speedMs < prevSpeed.current // only on deceleration
+          ) {
             const dt = (timestamp - prevTime.current) / 1000;
-
-            if (dt > 0) {
+            if (dt > 0 && dt < 5) {
+              // ignore stale readings
               const decel = (prevSpeed.current - speedMs) / dt;
-
-              if (decel > HARD_BRAKE_THRESHOLD) {
+              const timeSinceLastBrake = Date.now() - lastHardBrakeAt.current;
+              if (
+                decel > HARD_BRAKE_THRESHOLD &&
+                timeSinceLastBrake > HARD_BRAKE_DEBOUNCE_MS
+              ) {
+                lastHardBrakeAt.current = Date.now();
                 recordHardBrake(speedKph);
               }
             }
@@ -111,10 +161,9 @@ export function useLocation() {
           prevSpeed.current = speedMs;
           prevTime.current = timestamp;
 
-          // --- Zones ---
+          // --- Zone detection ---
           const zone = getCurrentZone(lat, lng);
           const zoneId = zone?.id ?? null;
-
           if (zoneId !== lastZoneId.current) {
             if (zone) log("ZONE", `Entered ${zone.label}`);
             else log("ZONE", "Outside zones");
@@ -129,6 +178,9 @@ export function useLocation() {
       );
     })();
 
-    return () => sub?.remove();
+    return () => {
+      sub?.remove();
+      if (tripEndTimer.current) clearTimeout(tripEndTimer.current);
+    };
   }, []);
 }

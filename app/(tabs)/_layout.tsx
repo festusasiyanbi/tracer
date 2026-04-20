@@ -33,6 +33,13 @@ export default function TabLayout() {
           }}
         />
         <Tabs.Screen
+          name="history"
+          options={{
+            title: "Driving",
+            tabBarIcon: () => <Ionicons name="car" size={24} color="#4ECDC4" />,
+          }}
+        />
+        <Tabs.Screen
           name="debug"
           options={{
             title: "Debug",
